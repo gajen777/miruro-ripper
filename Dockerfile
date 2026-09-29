@@ -1,25 +1,12 @@
 # use a lightweight python base image
 FROM python:3.11-slim
 
-# install native binaries needed for downloading and rendering
+# install native binaries needed for downloading
 RUN apt-get update && apt-get install -y \
     wget \
     aria2 \
     ffmpeg \
-    # playwright dependencies for chromium/firefox
-    libnss3 \
-    libnspr4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # set working directory
@@ -29,8 +16,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# install playwright's browser engine (firefox)
+# install playwright's browser engine (firefox) AND the OS dependencies
 RUN playwright install firefox
+RUN playwright install-deps firefox
 
 # copy the actual app code
 COPY app.py .
