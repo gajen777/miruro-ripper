@@ -1,48 +1,66 @@
+import asyncio
+from playwright.async_api import async_playwright
 import subprocess
 import sys
-from playwright.sync_api import sync_playwright
 
-def get_streams_with_playwright(url):
-    print(f"[*] launching headless firefox...")
-    with sync_playwright() as p:
-        # headless=True means no window pops up
-        browser = p.firefox.launch(headless=True) 
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
+async def get_streams_with_playwright(url):
+    print(f"[*] launching headless firefox (render cloud)...")
+    streams = {"video": None, "sub": None}
+    
+    async with async_playwright() as p:
+        # added low-memory args for render's 512MB limit
+        browser = await p.firefox.launch(
+            headless=True,
+            args=[
+                '--no-sandbox', 
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--single-process'
+            ]
+        )
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             viewport={'width': 1920, 'height': 1080}
         )
-        page = context.new_page()
+        page = await context.new_page()
         
-        streams = {"video": None, "sub": None}
-        
+        # intercept network requests
         def handle_request(request):
             req_url = request.url
-            # hunt for video stream
             if '.m3u8' in req_url and not streams["video"]:
                 print(f"[+] 🚨 CAUGHT VIDEO STREAM")
                 streams["video"] = req_url
-            # hunt for subtitle track
             if ('.vtt' in req_url or '.srt' in req_url) and not streams["sub"]:
                 print(f"[+] 📝 CAUGHT SUBTITLE TRACK")
                 streams["sub"] = req_url
-                
+
         page.on('request', handle_request)
         
         print(f"[*] hitting {url}...")
         try:
-            page.goto(url, wait_until='domcontentloaded', timeout=60000)
-            print("[*] waiting for player to fire streams...")
+            # strict 30-second timeout
+            await page.goto(url, {'wait_until': 'domcontentloaded', 'timeout': 30000})
             
-            # give it 20 seconds to grab both
-            for _ in range(20):
-                if streams["video"] and streams["sub"]:
+            # inject stealth script to bypass cloudflare
+            await page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                window.chrome = { runtime: {} };
+            """)
+            
+            # wait up to 15 seconds for the stream to fire
+            for _ in range(15):
+                if streams["video"]:
                     break
-                page.wait_for_timeout(1000)
+                await asyncio.sleep(1)
                 
+        except Exception as e:
+            print(f"[-] error: {e}")
         finally:
-            browser.close()
+            await browser.close()
             
     return streams
+
+# ... keep the rest of the file the same (download_video, etc)
 
 def download_video(streams, output_base, quality="best"):
     print(f"[*] passing to yt-dlp with aria2c (MAX SPEED)...")
