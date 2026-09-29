@@ -104,7 +104,9 @@ if __name__ == "__main__":
     output_base = sys.argv[2] if len(sys.argv) > 2 else url.split("/")[-1].replace("?ep=", "_ep_")
     quality = sys.argv[3] if len(sys.argv) > 3 else "best"
     
-    streams = get_streams_with_playwright(url)
+    # run the async function properly
+    streams = asyncio.get_event_loop().run_until_complete(get_streams_with_playwright(url))
+    
     if streams["video"]:
         download_video(streams, output_base, quality)
     else:
